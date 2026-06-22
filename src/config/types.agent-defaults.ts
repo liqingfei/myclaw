@@ -134,12 +134,14 @@ export type CliBackendConfig = {
   output?: "json" | "text" | "jsonl";
   /** Output parsing mode when resuming a CLI session. */
   resumeOutput?: "json" | "text" | "jsonl";
-  /** JSONL event dialect for CLIs with provider-specific stream formats. */
-  jsonlDialect?: "claude-stream-json" | "gemini-stream-json";
+  /** JSONL event dialect/parser id for CLIs with provider-specific stream formats. */
+  jsonlDialect?: "claude-stream-json" | "gemini-stream-json" | "qoder-stream-json" | (string & {});
   /** Long-lived CLI process mode. */
   liveSession?: "claude-stdio";
   /** Prompt input mode (default: arg). */
   input?: "arg" | "stdin";
+  /** Prefix flag for prompt arg (e.g. "-p" for qodercli). When set, prompt is passed as: <prefix> <prompt>. */
+  promptArgPrefix?: string;
   /** Max prompt length for arg mode (if exceeded, stdin is used). */
   maxPromptArgChars?: number;
   /** Extra env vars injected for this CLI. */

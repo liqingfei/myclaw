@@ -36,7 +36,7 @@ import {
   type CliToolResultDelta,
   type CliToolUseStartDelta,
   resolveCliStreamJsonOutputLimits,
-} from "../cli-output.js";
+} from "../cli-output.enhanced.js";
 import { classifyFailoverReason } from "../embedded-agent-helpers.js";
 import { FailoverError, isTimeoutError, resolveFailoverStatus } from "../failover-error.js";
 import { prepareCliBundleMcpCaptureAttempt } from "./bundle-mcp.js";

@@ -42,7 +42,7 @@ import {
   type CliThinkingDelta,
   type CliThinkingProgress,
   type CliToolUseStartDelta,
-} from "../cli-output.js";
+} from "../cli-output.enhanced.js";
 import { classifyFailoverReason } from "../embedded-agent-helpers.js";
 import {
   isDeliveredMessageToolOnlySourceReplyResult,
@@ -91,7 +91,7 @@ import {
   resolveSessionIdToSend,
   resolveSystemPromptUsage,
   writeCliSystemPromptFile,
-} from "./helpers.js";
+} from "./helpers.enhanced.js";
 import {
   cliBackendLog,
   CLI_BACKEND_LOG_OUTPUT_ENV,

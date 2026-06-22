@@ -1974,7 +1974,15 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
                           allowProgressCallbacksWhenSourceDeliverySuppressed:
                             draftToolProgressEnabled ? true : undefined,
                           onObservedReplyDelivery: draftToolProgressEnabled
-                            ? () => draftStream.clear()
+                            ? () => {
+                                // Finalize-in-place edits the progress preview post INTO the visible
+                                // final reply. That post IS the answer, so clearing it would delete the
+                                // user-visible reply. Only clear when the final landed via another path.
+                                if (previewState.finalizedViaPreviewPost) {
+                                  return;
+                                }
+                                return draftStream.clear();
+                              }
                             : undefined,
                           disableBlockStreaming: true,
                           ...(suppressDefaultToolProgressMessages

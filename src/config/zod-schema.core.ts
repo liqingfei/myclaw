@@ -812,11 +812,10 @@ export const CliBackendSchema = z
     args: z.array(z.string()).optional(),
     output: z.union([z.literal("json"), z.literal("text"), z.literal("jsonl")]).optional(),
     resumeOutput: z.union([z.literal("json"), z.literal("text"), z.literal("jsonl")]).optional(),
-    jsonlDialect: z
-      .union([z.literal("claude-stream-json"), z.literal("gemini-stream-json")])
-      .optional(),
+    jsonlDialect: z.string().optional(),
     liveSession: z.literal("claude-stdio").optional(),
     input: z.union([z.literal("arg"), z.literal("stdin")]).optional(),
+    promptArgPrefix: z.string().optional(),
     maxPromptArgChars: z.number().int().positive().optional(),
     env: z.record(z.string(), z.string()).optional(),
     clearEnv: z.array(z.string()).optional(),

@@ -18,7 +18,7 @@ import {
   resolveCliRunQueueKey,
   writeCliImages,
   writeCliSystemPromptFile,
-} from "./cli-runner/helpers.js";
+} from "./cli-runner/helpers.enhanced.js";
 import * as promptImageUtils from "./embedded-agent-runner/run/images.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import * as toolImages from "./tool-images.js";
@@ -224,6 +224,53 @@ describe("buildCliArgs", () => {
       "--model",
       "gemini-3.1-pro-preview",
     ]);
+  });
+
+  it("uses promptArgPrefix without also appending a bare prompt", () => {
+    expect(
+      buildCliArgs({
+        backend: {
+          command: "qodercli",
+          promptArgPrefix: "-p",
+        },
+        baseArgs: ["-q", "-f", "stream-json"],
+        modelId: "qoder3",
+        promptArg: "hello qoder",
+        useResume: false,
+      }),
+    ).toEqual(["-q", "-f", "stream-json", "-p", "hello qoder"]);
+  });
+
+  it("does not apply promptArgPrefix when args contain a prompt placeholder", () => {
+    expect(
+      buildCliArgs({
+        backend: {
+          command: "qodercli",
+          promptArgPrefix: "-p",
+        },
+        baseArgs: ["-q", "-f", "json", "-p", "{prompt}"],
+        modelId: "qoder3",
+        promptArg: "hello qoder",
+        useResume: false,
+      }),
+    ).toEqual(["-q", "-f", "json", "-p", "hello qoder"]);
+  });
+
+  it("keeps prompt insertion before image arguments when using promptArgPrefix", () => {
+    expect(
+      buildCliArgs({
+        backend: {
+          command: "qodercli",
+          imageArg: "--image",
+          promptArgPrefix: "-p",
+        },
+        baseArgs: ["-q"],
+        modelId: "qoder3",
+        imagePaths: ["/tmp/image.png"],
+        promptArg: "describe",
+        useResume: false,
+      }),
+    ).toEqual(["-q", "-p", "describe", "--image", "/tmp/image.png"]);
   });
 });
 
