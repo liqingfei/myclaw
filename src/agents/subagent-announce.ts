@@ -42,7 +42,7 @@ import {
   readSubagentOutput,
   type SubagentRunOutcome,
   waitForSubagentRunOutcome,
-} from "./subagent-announce-output.js";
+} from "./subagent-announce-output.enhanced.js";
 import {
   callGateway,
   dispatchGatewayMethodInProcess,
@@ -80,8 +80,8 @@ function loadSubagentRegistryRuntime() {
 }
 
 export { buildSubagentSystemPrompt } from "./subagent-system-prompt.js";
-export { captureSubagentCompletionReply } from "./subagent-announce-output.js";
-export type { SubagentRunOutcome } from "./subagent-announce-output.js";
+export { captureSubagentCompletionReply } from "./subagent-announce-output.enhanced.js";
+export type { SubagentRunOutcome } from "./subagent-announce-output.enhanced.js";
 
 export type SubagentAnnounceType = "subagent task" | "cron job";
 
