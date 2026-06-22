@@ -13,7 +13,8 @@ describe("buildSubagentInitialUserMessage", () => {
       task: "UNIQUE_VISIBLE_TASK\n  preserve indentation",
     });
 
-    expect(msg).toContain("[Subagent Task]");
+    expect(msg).toContain("## Task\nUNIQUE_VISIBLE_TASK");
+    expect(msg).not.toContain("[Subagent Task]");
     expect(msg).toContain("UNIQUE_VISIBLE_TASK");
     expect(msg).toContain("  preserve indentation");
     expect(msg).not.toContain("**Your Role**");

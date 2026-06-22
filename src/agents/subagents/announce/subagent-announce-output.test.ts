@@ -194,6 +194,19 @@ describe("readSubagentOutput", () => {
     await expect(readSubagentOutput("agent:main:subagent:child")).resolves.toBe(expected);
   });
 
+  it("preserves adjacent final assistant fragments", async () => {
+    installOutputDeps({
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "Primary result" }] },
+        { role: "assistant", content: [{ type: "text", text: "Closing note" }] },
+      ],
+    });
+
+    await expect(readSubagentOutput("agent:main:subagent:child")).resolves.toBe(
+      "Primary result\n\n---\n\nClosing note",
+    );
+  });
+
   it.each([
     {
       shape: "OpenAI top-level snake_case function call",

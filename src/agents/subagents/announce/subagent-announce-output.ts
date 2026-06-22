@@ -71,6 +71,7 @@ type SubagentOutputSnapshot = {
   latestAssistantText?: string;
   latestSilentText?: string;
   latestToolCallCount?: number;
+  assistantFragments: string[];
   waitingForContinuation?: boolean;
 };
 
@@ -137,7 +138,7 @@ function countAssistantToolCalls(message: unknown): number {
 }
 
 function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutputSnapshot {
-  const snapshot: SubagentOutputSnapshot = {};
+  const snapshot: SubagentOutputSnapshot = { assistantFragments: [] };
   let previousAssistantCalledYield = false;
   for (const message of messages) {
     if (!message || typeof message !== "object") {
@@ -157,6 +158,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
       snapshot.latestAssistantText = undefined;
       snapshot.latestSilentText = undefined;
       snapshot.latestToolCallCount = undefined;
+      snapshot.assistantFragments = [];
       snapshot.waitingForContinuation = false;
       previousAssistantCalledYield = false;
       continue;
@@ -165,6 +167,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
       if (assistantCallsSessionsYield(message)) {
         snapshot.latestAssistantText = undefined;
         snapshot.latestSilentText = undefined;
+        snapshot.assistantFragments = [];
         snapshot.waitingForContinuation = true;
         previousAssistantCalledYield = true;
         continue;
@@ -177,6 +180,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
         snapshot.latestAssistantText = undefined;
         snapshot.latestSilentText = undefined;
         snapshot.latestToolCallCount = (snapshot.latestToolCallCount ?? 0) + toolCallCount;
+        snapshot.assistantFragments = [];
         snapshot.waitingForContinuation = false;
         previousAssistantCalledYield = false;
         continue;
@@ -190,12 +194,14 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
       if (isAnnounceSkip(text) || isSilentReplyText(text, SILENT_REPLY_TOKEN)) {
         snapshot.latestSilentText = text;
         snapshot.latestAssistantText = undefined;
+        snapshot.assistantFragments = [];
         snapshot.waitingForContinuation = false;
         previousAssistantCalledYield = false;
         continue;
       }
       snapshot.latestSilentText = undefined;
       snapshot.latestAssistantText = text;
+      snapshot.assistantFragments.push(text);
       snapshot.waitingForContinuation = false;
       previousAssistantCalledYield = false;
       continue;
@@ -203,6 +209,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
     if (isSessionsYieldToolResult(message, previousAssistantCalledYield)) {
       snapshot.latestAssistantText = undefined;
       snapshot.latestSilentText = undefined;
+      snapshot.assistantFragments = [];
       snapshot.waitingForContinuation = true;
       previousAssistantCalledYield = false;
       continue;
@@ -221,6 +228,9 @@ function selectSubagentOutputText(
   }
   if (snapshot.latestSilentText) {
     return snapshot.latestSilentText;
+  }
+  if (snapshot.assistantFragments.length > 1) {
+    return snapshot.assistantFragments.join("\n\n---\n\n");
   }
   if (snapshot.latestAssistantText) {
     return snapshot.latestAssistantText;

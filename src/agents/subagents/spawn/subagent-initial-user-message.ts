@@ -12,19 +12,18 @@ export function buildSubagentInitialUserMessage(params: {
   persistentSession: boolean;
   task?: string;
 }): string {
-  const lines = [
+  const sections = [
     `[Subagent Context] You are running as a subagent (depth ${params.childDepth}/${params.maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
   ];
   if (params.persistentSession) {
-    lines.push(
+    sections.push(
       "[Subagent Context] This subagent session is persistent and remains available for thread follow-up messages.",
     );
   }
   const taskBody = params.task?.trim();
   if (taskBody) {
-    lines.push("[Subagent Task]", taskBody, "Begin. Execute the assigned task to completion.");
-  } else {
-    lines.push("Begin. Execute the assigned task to completion.");
+    sections.push(`## Task\n${taskBody}`);
   }
-  return lines.join("\n\n");
+  sections.push("Begin. Execute the assigned task to completion.");
+  return sections.join("\n\n");
 }
