@@ -1,0 +1,16 @@
+{
+  "name": "@openclaw/qodercli-provider",
+  "version": "2026.8.1",
+  "private": true,
+  "description": "OpenClaw Qoder CLI backend plugin",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "setupEntry": "./setup-api.ts"
+  }
+}

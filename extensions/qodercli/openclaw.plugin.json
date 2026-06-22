@@ -1,0 +1,33 @@
+{
+  "id": "qodercli",
+  "name": "Qoder CLI",
+  "description": "Qoder CLI backend support.",
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": true,
+  "cliBackends": ["qoder"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cliBackend": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "cliBackend.command": {
+      "label": "Qoder CLI Command",
+      "placeholder": "qodercli",
+      "help": "Path to the qodercli executable."
+    }
+  }
+}
