@@ -32,7 +32,10 @@ function copyPathFallback(sourcePath: string, targetPath: string) {
   const stat = fs.statSync(sourcePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   if (stat.isDirectory()) {
-    fs.cpSync(sourcePath, targetPath, { recursive: true, dereference: true });
+    fs.mkdirSync(targetPath);
+    for (const entry of fs.readdirSync(sourcePath)) {
+      copyPathFallback(path.join(sourcePath, entry), path.join(targetPath, entry));
+    }
     return;
   }
   fs.copyFileSync(sourcePath, targetPath);
