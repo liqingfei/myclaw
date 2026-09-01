@@ -68,8 +68,7 @@ export async function buildExternalPluginLocalDist(
     assertRealOutputRoot(targetDir);
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(targetDir), { recursive: true });
-    fs.cpSync(result.outDir, targetDir, { recursive: true });
-    fs.rmSync(result.outDir, { recursive: true, force: true });
+    fs.renameSync(result.outDir, targetDir);
     pluginDirs.push(result.pluginDir);
   }
 
