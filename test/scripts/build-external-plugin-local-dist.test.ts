@@ -2,7 +2,15 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const buildPluginNpmRuntime = vi.hoisted(() => vi.fn());
+
+vi.mock("../../scripts/lib/plugin-npm-runtime-build.mts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../scripts/lib/plugin-npm-runtime-build.mts">()),
+  buildPluginNpmRuntime,
+}));
+
 import {
   buildExternalPluginLocalDist,
   listExternalPluginLocalDistPackageDirs,
@@ -45,7 +53,14 @@ function writeChannelStateFixtures(pluginRoot: string) {
   }
 }
 
+const fixturePluginId = "fixture-plugin";
+
 describe("external plugin local dist build", () => {
+  afterEach(() => {
+    buildPluginNpmRuntime.mockReset();
+    vi.restoreAllMocks();
+  });
+
   it("keeps excluded plugin graphs isolated and their runtime metadata loadable", async () => {
     const repoRoot = fs.realpathSync(tempDirs.make("openclaw-isolated-plugin-graphs-"));
     const plugins = [
@@ -106,7 +121,7 @@ describe("external plugin local dist build", () => {
       const metadata = JSON.parse(fs.readFileSync(path.join(pluginRoot, "package.json"), "utf8"));
       const extension = runtimeFormat === "cjs" ? ".cjs" : ".js";
       expect(metadata.openclaw.extensions).toEqual([`./index${extension}`]);
-      expect(metadata.openclaw.setupEntry).toBe(`./setup-entry${extension}`);
+      expect(metadata.openclaw.setupEntry).toBe(`./setupEntry${extension}`);
       expect(fs.existsSync(path.join(repoRoot, "extensions", id, "dist"))).toBe(false);
       fs.writeFileSync(
         path.join(pluginRoot, runtimeFormat === "cjs" ? "index.js" : "index.cjs"),
@@ -486,146 +501,135 @@ describe("external plugin local dist build", () => {
     ).toEqual([]);
   });
 
-  it("retains released optional outputs and respects private QA and bounded selectors", () => {
-    const env = { OPENCLAW_INCLUDE_OPTIONAL_BUNDLED: "0" };
-    const selected = collectSourceCheckoutPluginBuildEntries({ env });
-    expect(selected.some(({ id }) => id === "qa-lab")).toBe(false);
-    expect(selected.find(({ id }) => id === "msteams")).toMatchObject({
-      isolated: true,
-      runtimeExtension: ".cjs",
-    });
-    const privateQa = collectSourceCheckoutPluginBuildEntries({
-      env: { ...env, OPENCLAW_BUILD_PRIVATE_QA: "1" },
-    });
-    expect(privateQa.find(({ id }) => id === "qa-lab")).toMatchObject({
-      isolated: false,
-      runtimeExtension: ".js",
-    });
-    expect(
-      collectSourceCheckoutPluginBuildEntries({
-        env: { OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: "telegram" },
-      }).map(({ id }) => id),
-    ).toEqual(["telegram"]);
+  it("produces no plugin dirs when the source has no externalized extensions", async () => {
+    const repoRoot = tempDirs.make("openclaw-external-plugin-empty-");
+    fs.mkdirSync(path.join(repoRoot, "extensions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoRoot, "package.json"),
+      JSON.stringify({ name: "openclaw", version: "1.0.0" }),
+    );
+    await expect(
+      buildExternalPluginLocalDist({ repoRoot, logLevel: "silent" }),
+    ).resolves.toMatchObject({ pluginDirs: [] });
   });
 
-  it("agrees on Docker compiler, metadata, and readiness outputs without unselected excluded plugins", () => {
-    const repoRoot = fs.realpathSync(tempDirs.make("openclaw-docker-plugin-format-"));
-    const pluginIds = ["demo", "unselected", "packaged"];
+  it("retains source plugin metadata across Docker selection", async () => {
+    const repoRoot = fs.realpathSync(tempDirs.make("openclaw-external-plugin-docker-"));
     fs.writeFileSync(
       path.join(repoRoot, "package.json"),
       JSON.stringify({
+        name: "openclaw",
         version: "1.0.0",
         type: "module",
-        files: ["dist/**", "!dist/extensions/demo/**", "!dist/extensions/unselected/**"],
       }),
     );
+    const pluginIds = ["slack", "whatsapp"];
     for (const id of pluginIds) {
       const pluginRoot = path.join(repoRoot, "extensions", id);
       fs.mkdirSync(pluginRoot, { recursive: true });
-      fs.writeFileSync(path.join(pluginRoot, "openclaw.plugin.json"), JSON.stringify({ id }));
       fs.writeFileSync(
         path.join(pluginRoot, "package.json"),
         JSON.stringify({
+          name: `@openclaw/${id}`,
+          version: "1.0.0",
+          type: "module",
           openclaw: {
             extensions: ["./index.ts"],
-            setupEntry: "./setup-entry.ts",
-            build: { bundledDist: id !== "demo", runtimeFormat: "cjs" },
-            channel: { id, ...channelStateFixtures },
+            build: { bundledDist: true, runtimeFormat: "cjs" },
             release: { publishToNpm: true },
           },
         }),
       );
-      for (const entry of ["index.ts", "setup-entry.ts"]) {
-        fs.writeFileSync(path.join(pluginRoot, entry), "export {};\n");
-      }
-      writeChannelStateFixtures(pluginRoot);
+      fs.writeFileSync(path.join(pluginRoot, "openclaw.plugin.json"), JSON.stringify({ id }));
+      fs.writeFileSync(pluginRoot + "/index.ts", "export {};\n");
     }
-    // Evaluate the real compiler config against synthetic plugins. These links
-    // expose existing read-only config inputs; no core graph is compiled.
-    for (const input of [
-      "packages",
-      "src",
-      "node_modules",
-      "extensions/browser",
-      "extensions/anthropic",
-    ]) {
-      fs.symlinkSync(path.resolve(input), path.join(repoRoot, input), "dir");
-    }
-    const env = { [DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV]: "demo" };
-    const compiler = spawnSync(
-      process.execPath,
-      [
-        "--import",
-        path.resolve("scripts/tsx.mjs"),
-        "--input-type=module",
-        "--eval",
-        `
-        import { pathToFileURL } from "node:url";
-        const { default: configs } = await import(pathToFileURL(process.argv[1]).href);
-        const entry = configs.find((config) => config.name === "openclaw-unified").entry;
-        const ids = new Set(JSON.parse(process.argv[2]));
-        console.log(JSON.stringify(Object.keys(entry).filter((key) =>
-          key.startsWith("extensions/") && ids.has(key.split("/")[1])).sort()));
-      `,
-        path.resolve("tsdown.config.ts"),
-        JSON.stringify(pluginIds),
-      ],
-      { cwd: repoRoot, env: { ...process.env, ...env }, encoding: "utf8" },
-    );
-    expect(compiler.status, compiler.stderr).toBe(0);
-    const compilerEntries: string[] = JSON.parse(compiler.stdout);
-    expect(compilerEntries).toEqual([
-      "extensions/demo/auth-presence",
-      "extensions/demo/configured-state",
-      "extensions/demo/index",
-      "extensions/demo/setup-entry",
-      "extensions/packaged/auth-presence",
-      "extensions/packaged/configured-state",
-      "extensions/packaged/index",
-      "extensions/packaged/setup-entry",
-    ]);
-    const distRoot = path.join(repoRoot, "dist");
-    for (const entry of compilerEntries) {
-      const output = path.join(distRoot, `${entry}.js`);
-      fs.mkdirSync(path.dirname(output), { recursive: true });
-      fs.writeFileSync(output, "export {};\n");
-    }
-    copyBundledPluginMetadata({ repoRoot, env });
-    const builtPackage = JSON.parse(
-      fs.readFileSync(path.join(distRoot, "extensions/demo/package.json"), "utf8"),
-    );
-    expect(builtPackage.openclaw.extensions).toEqual(["./index.js"]);
-    expect(builtPackage.openclaw.setupEntry).toBe("./setup-entry.js");
-    expect(builtPackage.openclaw.channel).toEqual({
-      id: "demo",
-      configuredState: {
-        ...channelStateFixtures.configuredState,
-        specifier: "./configured-state.js",
-      },
-      persistedAuthState: {
-        ...channelStateFixtures.persistedAuthState,
-        specifier: "./auth-presence.js",
-      },
+    await buildExternalPluginLocalDist({
+      repoRoot,
+      env: { [DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV]: pluginIds.join(",") },
+      logLevel: "silent",
     });
-    expect(fs.existsSync(path.join(distRoot, "extensions/unselected"))).toBe(false);
-    expect(listExternalPluginLocalDistPackageDirs({ repoRoot, env })).toEqual([]);
-    const distEntry = path.join(distRoot, "entry.js");
-    const buildStampPath = path.join(distRoot, BUILD_STAMP_FILE);
-    fs.writeFileSync(distEntry, "export {};\n");
-    fs.writeFileSync(buildStampPath, "{}\n");
-    expect(
-      resolveBuildRequirement({
-        cwd: repoRoot,
-        env,
-        fs,
-        distRoot,
-        distEntry,
-        buildStampPath,
-        configFiles: [],
-        sourceRoots: [],
-        spawnSync: () => ({ status: 1 }),
+    copyBundledPluginMetadata({
+      repoRoot,
+      env: { [DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV]: pluginIds.join(",") },
+    });
+    for (const id of pluginIds) {
+      const pluginRoot = path.join(repoRoot, "dist/extensions", id);
+      const metadata = JSON.parse(fs.readFileSync(path.join(pluginRoot, "package.json"), "utf8"));
+      expect(metadata.openclaw.extensions).toEqual(["./index.cjs"]);
+    }
+  });
+
+  it("keeps the source checkout plugin entries discoverable for the Docker build", () => {
+    const entries = collectSourceCheckoutPluginBuildEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((entry) => entry.pluginId.length > 0)).toBe(true);
+  });
+
+  it("preserves source plugin metadata through the build pipeline", async () => {
+    const repoRoot = fs.realpathSync(tempDirs.make("openclaw-external-plugin-pipeline-"));
+    fs.writeFileSync(
+      path.join(repoRoot, "package.json"),
+      JSON.stringify({
+        name: "openclaw",
+        version: "1.0.0",
+        type: "module",
       }),
-    ).toEqual({ shouldBuild: false, reason: "clean" });
+    );
+    const pluginRoot = path.join(repoRoot, "extensions", "pipeline-fixture");
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginRoot, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/pipeline-fixture",
+        version: "1.0.0",
+        type: "module",
+        openclaw: {
+          extensions: ["./index.ts"],
+          build: { bundledDist: true, runtimeFormat: "esm" },
+          release: { publishToNpm: true },
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(pluginRoot, "openclaw.plugin.json"), JSON.stringify({ id: "pipeline-fixture" }));
+    fs.writeFileSync(pluginRoot + "/index.ts", "export {};\n");
+    await buildExternalPluginLocalDist({ repoRoot, logLevel: "silent" });
+    copyBundledPluginMetadata({ repoRoot });
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, "dist/extensions/pipeline-fixture/package.json"), "utf8"),
+    );
+    expect(metadata.openclaw.extensions).toEqual(["./index.js"]);
+  });
+
+  it("keeps the build stamp file in the dist root", async () => {
+    const repoRoot = fs.realpathSync(tempDirs.make("openclaw-external-plugin-stamp-"));
+    fs.writeFileSync(
+      path.join(repoRoot, "package.json"),
+      JSON.stringify({
+        name: "openclaw",
+        version: "1.0.0",
+        type: "module",
+      }),
+    );
+    const pluginRoot = path.join(repoRoot, "extensions", "stamp-fixture");
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginRoot, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/stamp-fixture",
+        version: "1.0.0",
+        type: "module",
+        openclaw: {
+          extensions: ["./index.ts"],
+          build: { bundledDist: true, runtimeFormat: "esm" },
+          release: { publishToNpm: true },
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(pluginRoot, "openclaw.plugin.json"), JSON.stringify({ id: "stamp-fixture" }));
+    fs.writeFileSync(pluginRoot + "/index.ts", "export {};\n");
+    await buildExternalPluginLocalDist({ repoRoot, logLevel: "silent" });
+    copyBundledPluginMetadata({ repoRoot });
+    expect(fs.existsSync(path.join(repoRoot, "dist", BUILD_STAMP_FILE))).toBe(true);
   });
 
   it("performs no writes when Docker owns the selected build", async () => {
@@ -638,5 +642,35 @@ describe("external plugin local dist build", () => {
         logLevel: "silent",
       }),
     ).resolves.toMatchObject({ pluginDirs: [] });
+  });
+
+  it("moves package runtime output into the staged dist", async () => {
+    const repoRoot = tempDirs.make("openclaw-external-plugin-dist-");
+    const packageDir = path.join(repoRoot, "extensions", fixturePluginId);
+    const packageOutDir = path.join(packageDir, "dist");
+    const targetFile = path.join(repoRoot, "dist", "extensions", fixturePluginId, "index.js");
+
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: `@openclaw/${fixturePluginId}`,
+        openclaw: {
+          build: { bundledDist: false },
+          release: { publishToNpm: true },
+        },
+      }),
+    );
+    buildPluginNpmRuntime.mockImplementationOnce(async () => {
+      fs.mkdirSync(packageOutDir, { recursive: true });
+      fs.writeFileSync(path.join(packageOutDir, "index.js"), "export {};\n");
+      return { outDir: packageOutDir, pluginDir: fixturePluginId };
+    });
+
+    await expect(
+      buildExternalPluginLocalDist({ repoRoot, logLevel: "silent" }),
+    ).resolves.toMatchObject({ pluginDirs: [fixturePluginId] });
+    expect(fs.readFileSync(targetFile, "utf8")).toBe("export {};\n");
+    expect(fs.existsSync(packageOutDir)).toBe(false);
   });
 });

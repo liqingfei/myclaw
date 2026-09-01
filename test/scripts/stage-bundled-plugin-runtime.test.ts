@@ -56,6 +56,45 @@ describe("stageBundledPluginRuntime", () => {
     });
   });
 
+  it("copies unpacked browser extensions without recursive cpSync", async () => {
+    await withTempDir(async (repoRoot) => {
+      const extensionDir = path.join(repoRoot, "dist", "extensions", "browser", "chrome-extension");
+      await fs.promises.mkdir(path.join(extensionDir, "scripts"), { recursive: true });
+      await fs.promises.writeFile(
+        path.join(extensionDir, "manifest.json"),
+        '{"manifest_version":3}\n',
+        "utf8",
+      );
+      await fs.promises.writeFile(
+        path.join(extensionDir, "scripts", "content.js"),
+        "export {};\n",
+        "utf8",
+      );
+      vi.spyOn(fs, "cpSync").mockImplementation(() => {
+        throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
+      });
+
+      stageBundledPluginRuntime({ repoRoot });
+
+      const runtimeExtensionDir = path.join(
+        repoRoot,
+        "dist-runtime",
+        "extensions",
+        "browser",
+        "chrome-extension",
+      );
+      await expect(
+        fs.promises.readFile(path.join(runtimeExtensionDir, "manifest.json"), "utf8"),
+      ).resolves.toBe('{"manifest_version":3}\n');
+      await expect(
+        fs.promises.readFile(path.join(runtimeExtensionDir, "scripts", "content.js"), "utf8"),
+      ).resolves.toBe("export {};\n");
+      expect(fs.lstatSync(path.join(runtimeExtensionDir, "scripts", "content.js")).isFile()).toBe(
+        true,
+      );
+    });
+  });
+
   it("refuses to stage through a symlinked dist root", async () => {
     await withTempDir(async (repoRoot) => {
       const targetDir = path.join(repoRoot, "gateway-dist");
