@@ -17,7 +17,7 @@ import type { CodexSessionCatalogControlFactory } from "./src/session-catalog-ty
 
 // `codex` is legacy input only until Part 2 doctor migration rewrites stored refs.
 // New runtime identity uses the `openai` provider.
-const DEFAULT_CODEX_HARNESS_PROVIDER_IDS = new Set(["codex", "openai"]);
+const DEFAULT_CODEX_HARNESS_PROVIDER_IDS = new Set(["codex", "openai", "kong"]);
 // Same versioned slot shared-client.ts writes; a bare name would let this harness call
 // another build's disposer after an in-process plugin update.
 const SHARED_CODEX_APP_SERVER_CLIENT_DISPOSER = codexBuildSymbol(
@@ -242,7 +242,12 @@ export function createCodexAppServerAgentHarness(
             reason: "Codex cannot reproduce the prepared provider route",
           };
         }
-      } else if (ctx.modelProvider && provider !== "codex" && !nativeAccountOwnsUnobservedModel) {
+      } else if (
+        ctx.modelProvider &&
+        provider !== "codex" &&
+        provider !== "kong" &&
+        !nativeAccountOwnsUnobservedModel
+      ) {
         return {
           supported: false,
           reason: "provider route compatibility with Codex is not declared",
