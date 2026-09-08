@@ -20,7 +20,7 @@ import type { CodexSessionCatalogControlFactory } from "./src/session-catalog-ty
 
 // `codex` is legacy input only until Part 2 doctor migration rewrites stored refs.
 // New runtime identity uses the `openai` provider.
-const DEFAULT_CODEX_HARNESS_PROVIDER_IDS = new Set(["codex", "openai"]);
+const DEFAULT_CODEX_HARNESS_PROVIDER_IDS = new Set(["codex", "openai", "kong"]);
 const SHARED_CODEX_APP_SERVER_CLIENT_DISPOSER = Symbol.for("openclaw.codexAppServerClientDisposer");
 // Audited against @openai/codex 0.150.1 (rust-v0.150.1). These exact denies
 // either have no Codex-native equivalent or are enforced by the harness. Keep
@@ -238,7 +238,12 @@ export function createCodexAppServerAgentHarness(
             reason: "Codex cannot reproduce the prepared provider route",
           };
         }
-      } else if (ctx.modelProvider && provider !== "codex" && !nativeAccountOwnsUnobservedModel) {
+      } else if (
+        ctx.modelProvider &&
+        provider !== "codex" &&
+        provider !== "kong" &&
+        !nativeAccountOwnsUnobservedModel
+      ) {
         return {
           supported: false,
           reason: "provider route compatibility with Codex is not declared",

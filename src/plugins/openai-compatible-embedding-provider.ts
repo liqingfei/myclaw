@@ -433,12 +433,29 @@ async function createOpenAICompatibleEmbeddingProvider(
     if (inputs.length === 0) {
       return [];
     }
-    return await postEmbeddingRequest({
-      client,
-      input: inputs.map(embeddingInputToText),
-      signal: callOptions?.signal,
-      inputType: callOptions?.inputType,
-    });
+    // DashScope and some providers limit batch size to 10
+    const MAX_BATCH_SIZE = 10;
+    if (inputs.length <= MAX_BATCH_SIZE) {
+      return await postEmbeddingRequest({
+        client,
+        input: inputs.map(embeddingInputToText),
+        signal: callOptions?.signal,
+        inputType: callOptions?.inputType,
+      });
+    }
+    // Split into chunks and process sequentially
+    const results: number[][] = [];
+    for (let i = 0; i < inputs.length; i += MAX_BATCH_SIZE) {
+      const chunk = inputs.slice(i, i + MAX_BATCH_SIZE);
+      const chunkResults = await postEmbeddingRequest({
+        client,
+        input: chunk.map(embeddingInputToText),
+        signal: callOptions?.signal,
+        inputType: callOptions?.inputType,
+      });
+      results.push(...chunkResults);
+    }
+    return results;
   };
   return {
     provider: {
