@@ -47,6 +47,10 @@ minimumReleaseAgeExclude:
   - "@grammyjs/types@5.0.0"
   - "grammy@1.46.0"
 
+# Large platform-specific binaries (e.g. @openai/codex-linux-arm64 ~116MB) can timeout
+# on slow links; bump fetch timeout to 5 minutes so optional deps are not silently skipped.
+fetchTimeout: 300000
+
 # Isolated installs let pnpm reuse whole-package APFS clones instead of relinking every file.
 nodeLinker: isolated
 # GWTs share node_modules; script commands must not reconcile that shared install.
