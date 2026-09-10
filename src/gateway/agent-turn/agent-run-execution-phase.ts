@@ -15,12 +15,14 @@ import {
 } from "../../agents/main-session-recovery/main-session-recovery-store.js";
 import { withPreparedModelRuntimePluginGenerationScope } from "../../agents/prepared-model-runtime-generation-scope.js";
 import { resolveScheduledToolPolicyContext } from "../../agents/scheduled-tool-policy.js";
+import { withoutGatewayToolCallerIdentity } from "../../agents/tools/gateway-caller-context.js";
 import { isExecutionIdentityCollectionEnabled } from "../../audit/audit-config.js";
 import {
   setChannelSourceTurnId,
   setChannelSourceTurnSameThreadRequired,
 } from "../../auto-reply/reply/source-turn-id.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import { runWithoutOwnedSessionTranscriptWrites } from "../../config/sessions/transcript-write-context.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { isAbortError } from "../../infra/abort-signal.js";
 import type { MediaFact } from "../../media/media-facts.js";
@@ -160,7 +162,7 @@ export function startAgentRunExecution(params: {
     const recorder = prepared.userTurn.recorder;
     return recorder?.withPendingInput ? recorder.withPendingInput(run) : run();
   };
-  return prepared.activeGatewayWorkAdmission.run(async () => {
+  const runAcceptedExecution = async () => {
     await yieldAfterAgentAcceptedAck();
     let dispatched = false;
     let pendingRecovery: MainSessionRecoveryPendingTarget | undefined;
@@ -586,5 +588,12 @@ export function startAgentRunExecution(params: {
         await mediaCleanup;
       }
     }
-  });
+  };
+  // Accepted runs establish their own authority and writer. Do not retain the
+  // initiating attempt's contexts through execution or terminal cleanup.
+  return withoutGatewayToolCallerIdentity(() =>
+    runWithoutOwnedSessionTranscriptWrites(() =>
+      prepared.activeGatewayWorkAdmission.run(runAcceptedExecution),
+    ),
+  );
 }

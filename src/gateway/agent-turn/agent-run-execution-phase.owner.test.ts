@@ -1,8 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createOperationalRunInstanceRef,
+  prepareAgentRunAdmission,
+} from "../../agents/admitted-run-context.js";
+import { createDeferredEmbeddedRunLifecycleManager } from "../../agents/embedded-agent-runner/run/deferred-lifecycle-owner.js";
+import { isEmbeddedAgentRunHandleActive } from "../../agents/embedded-agent-runner/runs.js";
+import { withPreparedEmbeddedRunToolAuthority } from "../../agents/harness/tool-authority.runtime.js";
+import {
   getPreparedModelRuntimeBorrowedSnapshot,
   getPreparedModelRuntimePluginGeneration,
 } from "../../agents/prepared-model-runtime-generation-scope.js";
+import { getGatewayToolCallerIdentity } from "../../agents/tools/gateway-caller-context.js";
+import {
+  getCliHistoryWriter,
+  runWithCliHistoryWriter,
+} from "../../config/sessions/cli-history-boundary.js";
+import {
+  assertOwnedTranscriptWriteCommit,
+  getOwnedSessionTranscriptWriterFence,
+  withOwnedSessionTranscriptWrites,
+} from "../../config/sessions/transcript-write-context.js";
 import { startAgentRunExecution } from "./agent-run-execution-phase.js";
 
 const dispatchAgentRunFromGateway = vi.hoisted(() => vi.fn());
@@ -95,6 +112,125 @@ function createExecution(options: { aborted?: boolean; assertContextCurrent?: ()
 
 describe("startAgentRunExecution Gateway ownership", () => {
   beforeEach(() => dispatchAgentRunFromGateway.mockReset());
+
+  it.each(["success", "failure", "aborted"] as const)(
+    "isolates accepted child execution and %s settlement from its parent",
+    async (outcome) => {
+      const execution = createExecution({ aborted: outcome === "aborted" });
+      const parent = {
+        agentId: "main",
+        sessionId: "parent-session",
+        sessionKey: "agent:main:parent",
+        sessionFile: "/tmp/parent-session.jsonl",
+        runId: "parent-run",
+        workspaceDir: "/tmp/parent-workspace",
+        config: {},
+        provider: "openai",
+        modelId: "gpt-test",
+      };
+      const target = { ...parent, storePath: "/tmp/parent-agent.sqlite" };
+      const child = {
+        agentId: "main",
+        sessionId: "child-session",
+        sessionKey: "agent:main:subagent:child",
+        sessionFile: "/tmp/child-session.jsonl",
+        runId: execution.params.runId,
+      };
+      const admission = prepareAgentRunAdmission({
+        cfg: {},
+        operationalRunInstance: createOperationalRunInstanceRef(parent.runId),
+        facts: {
+          agentId: parent.agentId,
+          runId: parent.runId,
+          ingress: { kind: "system", state: "present", boundary: "child-execution-test" },
+        },
+      });
+      const historyWriter = {
+        target,
+        runId: parent.runId,
+        authFingerprint: "parent-auth",
+        assertCurrent: () => {},
+        assertReadable: () => {},
+      };
+      const observations: unknown[] = [];
+      const observe = () => {
+        observations.push({
+          caller: getGatewayToolCallerIdentity(),
+          writer: getOwnedSessionTranscriptWriterFence(),
+          history: getCliHistoryWriter(target),
+        });
+      };
+      execution.abortCleanup.mockImplementation(observe);
+      let childRegistered = false;
+      dispatchAgentRunFromGateway.mockImplementationOnce(async (dispatch) => {
+        const lifecycle = createDeferredEmbeddedRunLifecycleManager(child);
+        try {
+          // This is the early CLI handoff, before the child's runtime admission.
+          lifecycle.handoffToCli();
+          childRegistered = isEmbeddedAgentRunHandleActive(child.sessionId);
+          assertOwnedTranscriptWriteCommit({ ...child, storePath: "/tmp/child-agent.sqlite" });
+          await Promise.resolve();
+          observe();
+          expect(dispatch.ingressOpts.operationalRunInstance).toBe(
+            execution.params.prepared.operationalRunInstance,
+          );
+          if (outcome === "failure") {
+            throw new Error("child execution failed");
+          }
+        } finally {
+          await lifecycle.complete();
+          dispatch.cleanupAbortController();
+        }
+      });
+      try {
+        const admittedRunContext = await admission.admit("embedded", "parent-test");
+        await withPreparedEmbeddedRunToolAuthority(
+          { admittedRunContext },
+          parent,
+          undefined,
+          async () =>
+            withOwnedSessionTranscriptWrites(
+              {
+                sessionTarget: { ...target, expectedWriterRunId: parent.runId },
+                assertCommitAllowed: () => {},
+                withTranscriptWrite: async (run) => await run(),
+              },
+              async () =>
+                runWithCliHistoryWriter(historyWriter, async () => {
+                  const parentCaller = getGatewayToolCallerIdentity();
+                  await startAgentRunExecution(execution.params);
+                  expect(getGatewayToolCallerIdentity()).toBe(parentCaller);
+                  expect(getOwnedSessionTranscriptWriterFence()?.expectedWriterRunId).toBe(
+                    parent.runId,
+                  );
+                  expect(getCliHistoryWriter(target)).toBe(historyWriter);
+                }),
+            ),
+        );
+        expect(childRegistered).toBe(outcome !== "aborted");
+        expect(isEmbeddedAgentRunHandleActive(child.sessionId)).toBe(false);
+        expect(observations).toHaveLength(outcome === "aborted" ? 1 : 2);
+        for (const observation of observations) {
+          expect(observation).toEqual({ caller: undefined, writer: undefined, history: undefined });
+        }
+        if (outcome === "success") {
+          expect(execution.params.io.emitFinal).not.toHaveBeenCalled();
+        } else {
+          expect(execution.params.io.emitFinal).toHaveBeenCalledWith(
+            expect.arrayContaining([
+              expect.objectContaining({
+                status: outcome === "aborted" ? "timeout" : "error",
+                summary: outcome === "aborted" ? "aborted" : "child execution failed",
+              }),
+            ]),
+            expect.anything(),
+          );
+        }
+      } finally {
+        admission.close();
+      }
+    },
+  );
 
   it("dispatches with the runtime generation frozen at admission", async () => {
     const execution = createExecution();
